@@ -1,0 +1,147 @@
+name: Build Urumi Kernel (spes/spesn)
+
+# Заклади цей файл у СВІЙ репозиторій (будь-який, навіть порожній) за шляхом:
+#   .github/workflows/build-urumi.yml
+# Джерело ядра тягнеться напряму з knyplaygrnd/android_kernel_xiaomi_spes,
+# гілка urumi (без KernelSU — властивість самої гілки).
+#
+# Дерево джерел НЕ ЧІПАЄТЬСЯ ВЗАГАЛІ. Єдине, що додається, — це реальні
+# build-time перемикачі, застосовані до out/.config (артефакт збірки, не
+# файл репозиторію):
+#   CONFIG_LTO_CLANG_FULL=y                   — Full Link-Time Optimization
+#   CONFIG_PGO_CLANG=y                        — Profile-Guided Optimization
+#   CONFIG_BOLT_CLANG=y                       — BOLT Optimization
+#   CONFIG_MLGO_CLANG=y                       — Machine Learning Guided Optimization
+#   CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y      — рівень -O2 (штатний Kconfig-вибір)
+#
+# -O3 свідомо не додаю: у ванільному Kconfig такого вибору взагалі нема (є
+# лише -O2/-Os), а форсити -O3 прапорцем поверх ядра — відомий спосіб зловити
+# тихі помилки компіляції (ядро писане й перевірене під -O2). Раз давав вибір
+# "o3 або o2" — беру безпечний, штатний -O2.
+#
+# Тулчейн: clang/LLVM (LLVM=1), вимагає CC_IS_CLANG && LD_IS_LLD.
+#
+# Запуск: вкладка Actions -> Build Urumi Kernel -> Run workflow.
+# Увага: Full LTO та додаткові оптимізації помітно збільшують час/пам'ять збірки 
+# відносно звичайної — на безкоштовному ubuntu-latest runner (2 ядра/7ГБ) 
+# це може бути повільно.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Гілка kernel-репозиторію"
+        default: "urumi"
+        required: false
+
+env:
+  AK3_REPO: "https://github.com/osm0sis/AnyKernel3.git"
+  DEFCONFIG: "vendor/bengal-perf_defconfig vendor/xiaomi/spes.config"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout джерела ядра
+        uses: actions/checkout@v4
+        with:
+          repository: knyplaygrnd/android_kernel_xiaomi_spes
+          ref: ${{ github.event.inputs.branch || 'urumi' }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Встановлення залежностей збірки (clang/LLVM)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            clang lld llvm bc bison flex libssl-dev libelf-dev python3 zip git
+
+      - name: Конфігурація (defconfig + Full LTO/PGO/BOLT/MLGO/O2)
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 LLVM=1 $DEFCONFIG
+          # Джерела не чіпаємо взагалі — LTO/PGO/BOLT/MLGO рівень оптимізації 
+          # виставляємо напряму в out/.config.
+          ./scripts/config --file out/.config \
+            -e LTO_CLANG -d LTO_NONE -d THINLTO -e LTO_CLANG_FULL \
+            -e PGO_CLANG -e BOLT_CLANG -e MLGO_CLANG \
+            -e CC_OPTIMIZE_FOR_PERFORMANCE -d CC_OPTIMIZE_FOR_SIZE
+          make O=out ARCH=arm64 LLVM=1 olddefconfig
+          echo "----- Оптимізації у фінальному .config -----"
+          grep -E "^CONFIG_LTO_CLANG=|^CONFIG_LTO_CLANG_FULL=|^CONFIG_PGO_CLANG=|^CONFIG_BOLT_CLANG=|^CONFIG_MLGO_CLANG=|^CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=" out/.config
+
+      - name: Збірка (Image.gz + dtb.img + dtbo.img)
+        working-directory: kernel
+        run: |
+          make -j"$(nproc)" O=out ARCH=arm64 LLVM=1 \
+            Image.gz dtb.img dtbo.img 2>&1 | tee build.log
+
+      - name: Пакування в AnyKernel3
+        run: |
+          git clone -q "$AK3_REPO" AnyKernel3
+          cd AnyKernel3
+          rm -f ./*.zip
+
+          cp ../kernel/out/arch/arm64/boot/Image.gz .
+          cp ../kernel/out/arch/arm64/boot/dtbo.img .
+          cp ../kernel/out/arch/arm64/boot/dtb.img ./dtb
+
+          # properties спес/спесн-збірки — як в оригінальному Urumi AnyKernel3
+          {
+          echo "### AnyKernel3 Ramdisk Mod Script"
+          echo "## osm0sis @ xda-developers"
+          echo ""
+          echo "### AnyKernel setup"
+          echo "# global properties"
+          echo "properties() { '"
+          echo "kernel.string=Urumi (stock + Full LTO/PGO/BOLT/MLGO) by build-workflow"
+          echo "do.devicecheck=1"
+          echo "do.modules=0"
+          echo "do.systemless=1"
+          echo "do.cleanup=1"
+          echo "do.cleanuponabort=0"
+          echo "device.name1=spes"
+          echo "device.name2=spesn"
+          echo "supported.versions=13.0-16.0"
+          echo "supported.patchlevels="
+          echo "supported.vendorpatchlevels="
+          echo "'; } # end properties"
+          echo ""
+          echo "### AnyKernel install"
+          echo "## boot files attributes"
+          echo "boot_attributes() {"
+          echo 'set_perm_recursive 0 0 755 644 $RAMDISK/*;'
+          echo 'set_perm_recursive 0 0 750 750 $RAMDISK/init* $RAMDISK/sbin;'
+          echo "} # end attributes"
+          echo ""
+          echo "# boot shell variables"
+          echo "BLOCK=/dev/block/by-name/boot;"
+          echo "IS_SLOT_DEVICE=1;"
+          echo "RAMDISK_COMPRESSION=auto;"
+          echo "PATCH_VBMETA_FLAG=auto;"
+          echo ""
+          echo "# import functions/variables and setup patching (DO NOT REMOVE)"
+          echo ". tools/ak3-core.sh;"
+          echo ""
+          echo "# boot install"
+          echo "dump_boot;"
+          echo "write_boot;"
+          echo "## end boot install"
+          } > anykernel.sh
+
+          ZIP_NAME="Urumi-spes-Full-LTO-PGO-BOLT-MLGO-$(date +%Y%m%d-%H%M%S).zip"
+          zip -r9 -q "../$ZIP_NAME" . -x ".git*" "README.md" "*placeholder" ".gitignore"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Завантажити прошиваний zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_NAME }}
+
+      - name: Завантажити build.log (завжди, для діагностики)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build.log
+          path: kernel/build.log
