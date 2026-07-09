@@ -94,7 +94,7 @@ jobs:
           echo "### AnyKernel setup"
           echo "# global properties"
           echo "properties() { '"
-          echo "kernel.string=Urumi (stock + Full LTO/PGO/BOLT/MLGO) by build-workflow"
+          echo "kernel.string=UrumiTweaked by DmytroHardcoder"
           echo "do.devicecheck=1"
           echo "do.modules=0"
           echo "do.systemless=1"
@@ -129,7 +129,7 @@ jobs:
           echo "## end boot install"
           } > anykernel.sh
 
-          ZIP_NAME="Urumi-spes-Full-LTO-PGO-BOLT-MLGO-$(date +%Y%m%d-%H%M%S).zip"
+          ZIP_NAME="Urumi-Plus-Full-LTO-by-DmytroHardcoder-$(date +%Y%m%d-%H%M%S).zip"
           zip -r9 -q "../$ZIP_NAME" . -x ".git*" "README.md" "*placeholder" ".gitignore"
           echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
