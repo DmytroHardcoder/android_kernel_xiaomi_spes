@@ -271,7 +271,7 @@ static int ksm_max_page_sharing = 256;
 static unsigned int ksm_thread_pages_to_scan = 200;
 
 /* Milliseconds ksmd should sleep between batches */
-static unsigned int ksm_thread_sleep_millisecs = 1000;
+static unsigned int ksm_thread_sleep_millisecs = 2000;
 
 /* Checksum of an empty (zeroed) page */
 static unsigned int zero_checksum __read_mostly;
