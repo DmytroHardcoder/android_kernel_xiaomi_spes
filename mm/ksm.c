@@ -3155,7 +3155,7 @@ static int __init ksm_init(void)
 	/* The correct value depends on page size and endianness */
 	zero_checksum = calc_checksum(ZERO_PAGE(0));
 	/* Default to false for backwards compatibility */
-	ksm_use_zero_pages = false;
+	ksm_use_zero_pages = true;
 
 	err = ksm_slab_init();
 	if (err)
