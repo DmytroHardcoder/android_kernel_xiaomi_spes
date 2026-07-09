@@ -45,7 +45,7 @@ jobs:
       - name: Checkout джерела ядра
         uses: actions/checkout@v4
         with:
-          repository: knyplaygrnd/android_kernel_xiaomi_spes
+          repository: DmytroHardcoder/android_kernel_xiaomi_spes
           ref: ${{ github.event.inputs.branch || 'urumi' }}
           path: kernel
           fetch-depth: 1
